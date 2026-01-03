@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+.env
+GEMINI.md
+PROGRESS.md
+repos/
+
+# Project specific
+data/
+data/*
+!data/.gitkeep
+logs/
+*.log
+
+# IDEs
+.vscode/
+.idea/
