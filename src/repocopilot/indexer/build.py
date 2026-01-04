@@ -1,4 +1,6 @@
 import os
+import uuid
+import hashlib
 from typing import List
 from tqdm import tqdm
 from qdrant_client import QdrantClient
@@ -44,7 +46,7 @@ class IndexBuilder:
         qdrant_path = os.path.join(output_dir, "qdrant")
         self.client = QdrantClient(path=qdrant_path)
 
-        # Check if collection exists
+        # Check if collection exists, if not create
         collections = self.client.get_collections().collections
         exists = any(c.name == self.collection_name for c in collections)
 
@@ -53,7 +55,7 @@ class IndexBuilder:
                 collection_name=self.collection_name,
                 vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
             )
-        if exists:
+        else:
             # Check if vector size matches, if not, recreate
             collection_info = self.client.get_collection(self.collection_name)
             if collection_info.config.params.vectors.size != vector_size:
@@ -76,6 +78,11 @@ class IndexBuilder:
                         size=vector_size, distance=Distance.COSINE
                     ),
                 )
+
+    def _to_uuid(self, id_str: str) -> str:
+        """Deterministically converts a string ID to a UUID."""
+        hash_hex = hashlib.md5(id_str.encode("utf-8")).hexdigest()
+        return str(uuid.UUID(hash_hex))
 
     def build(self):
         print(f"🚀 Starting index build for {self.repo_path}...")
@@ -116,7 +123,7 @@ class IndexBuilder:
             for chunk, vector in zip(batch, vectors):
                 points.append(
                     PointStruct(
-                        id=chunk.id,
+                        id=self._to_uuid(chunk.id),  # Convert to UUID
                         vector=vector,
                         # CRITICAL: Use mode='json' to ensure payload is primitive types (no Enums)
                         payload=chunk.model_dump(mode="json", exclude={"id"}),
@@ -125,7 +132,6 @@ class IndexBuilder:
 
         self.client.upsert(collection_name=self.collection_name, points=points)
         print(f"💾 Vector index saved to {os.path.join(self.output_dir, 'qdrant')}")
-        print(f"💾 Vector index saved to {os.path.join(self.output_dir, 'qdrant')}")
 
         # 3. Build & Save BM25
         print("📚 Building BM25 index...")
@@ -133,9 +139,7 @@ class IndexBuilder:
         bm25_retriever.index(all_chunks)
 
         # Save as JSON (the retriever handles the extension replacement, but let's be explicit)
-        bm25_path = os.path.join(
-            self.output_dir, "bm25.pkl"
-        )  # Keeper .pkl in var name for compat, but underlying saves .json
+        bm25_path = os.path.join(self.output_dir, "bm25.pkl")
         bm25_retriever.save(bm25_path)
         print(f"💾 BM25 index saved to {bm25_path.replace('.pkl', '.json')}")
 

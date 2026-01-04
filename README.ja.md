@@ -36,6 +36,22 @@
 
 ---
 
+## 🌐 対応言語
+
+### 🚀 高度な解析 (AST ベース)
+
+Python, C, C++, C#, Java, Go, Rust, JavaScript, TypeScript (TSX 含む), Lua。
+
+### 📄 一般的なサポート (テキストベース)
+
+* **Web**: HTML, CSS, SCSS, LESS。
+
+* **設定ファイル**: JSON, YAML, TOML, XML, .ini, .conf。
+* **インフラ**: Dockerfile, .gitignore。
+* **ドキュメント**: Markdown。
+
+---
+
 ## 🚀 クイックスタート
 
 ### 1. インストール

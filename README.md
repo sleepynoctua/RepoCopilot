@@ -36,6 +36,22 @@
 
 ---
 
+## 🌐 Supported Languages
+
+### 🚀 Deep Analysis (AST-based)
+
+Python, C, C++, C#, Java, Go, Rust, JavaScript, TypeScript (incl. TSX), Lua.
+
+### 📄 General Support (Text-based)
+
+* **Web**: HTML, CSS, SCSS, LESS.
+
+* **Configs**: JSON, YAML, TOML, XML, .ini, .conf.
+* **Infrastructure**: Dockerfile, .gitignore.
+* **Docs**: Markdown.
+
+---
+
 ## 🚀 Quick Start
 
 ### 1. Installation

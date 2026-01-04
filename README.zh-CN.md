@@ -36,6 +36,22 @@
 
 ---
 
+## 🌐 支持语言
+
+### 🚀 深度分析 (基于 AST)
+
+Python, C, C++, C#, Java, Go, Rust, JavaScript, TypeScript (包含 TSX), Lua。
+
+### 📄 通用支持 (基于纯文本)
+
+* **Web**: HTML, CSS, SCSS, LESS。
+
+* **配置文件**: JSON, YAML, TOML, XML, .ini, .conf。
+* **基础设施**: Dockerfile, .gitignore。
+* **文档**: Markdown。
+
+---
+
 ## 🚀 快速开始
 
 ### 1. 安装
