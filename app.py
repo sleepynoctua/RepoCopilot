@@ -14,7 +14,6 @@ from src.repocopilot.indexer.build import IndexBuilder
 # 1. LOAD DOTENV FIRST
 load_dotenv(override=True)
 
-
 # 2. Page Config
 st.set_page_config(page_title="RepoCopilot", page_icon="🤖", layout="wide")
 
@@ -29,6 +28,36 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
+
+# --- PERSISTENCE HELPERS ---
+STATE_FILE = ".repo_state"
+
+
+def save_repo_state(path, name):
+    """Saves the current repo info to disk."""
+    try:
+        with open(STATE_FILE, "w", encoding="utf-8") as f:
+            f.write(f"{path}|{name}")
+    except Exception as e:
+        print(f"Failed to save state: {e}")
+
+
+def load_repo_state():
+    """Loads the last active repo info from disk."""
+    default_path = "."
+    default_name = "RepoCopilot (Source)"
+    if not os.path.exists(STATE_FILE):
+        return default_path, default_name
+    try:
+        with open(STATE_FILE, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+            if "|" in content:
+                path, name = content.split("|", 1)
+                if os.path.exists(path):
+                    return path, name
+    except Exception:
+        pass
+    return default_path, default_name
 
 
 # 3. Helper Functions
@@ -56,13 +85,15 @@ def clone_repo(url):
 def rebuild_index(target_path):
     if os.path.exists("data/qdrant"):
         shutil.rmtree("data/qdrant", ignore_errors=True)
+
+    # Clean up both potential files
     if os.path.exists("data/bm25.pkl"):
         os.remove("data/bm25.pkl")
+    if os.path.exists("data/bm25.json"):
+        os.remove("data/bm25.json")
 
     provider = os.getenv("EMBEDDING_PROVIDER", "mock")
-
-    # SPECIAL RULE: If we are indexing the RepoCopilot source itself (root dir),
-    # we MUST ignore the 'repos' folder (where other code lives) and 'data' folder.
+    # Rule for RepoCopilot self-indexing
     ignore_list = None
     if target_path == "." or target_path == os.getcwd():
         ignore_list = ["repos", "data", ".venv", "__pycache__", ".git"]
@@ -74,10 +105,10 @@ def rebuild_index(target_path):
     )
     builder.build()
 
-    # Validation: Check if index was actually created
-    if not os.path.exists("data/bm25.pkl"):
+    # Validation: Check for JSON file
+    if not os.path.exists("data/bm25.json"):
         raise Exception(
-            f"Indexing completed but no data was generated. The crawler might have found 0 python files in '{target_path}'."
+            "Indexing failed: 'data/bm25.json' was not created. Found 0 files?"
         )
 
 
@@ -95,20 +126,16 @@ def init_agent(repo_path_hash):
     return RepoCopilotAgent(retriever, llm)
 
 
-# --- CORE LOGIC: SWITCH REPO PIPELINE ---
 def perform_switch(target_path, display_name, status_container):
     """Executes the sequence to switch the active repository."""
     try:
-        # 1. Close existing agent (CRITICAL FIX)
-        # We retrieve the *currently cached* instance by calling init_agent with the *current* state.
-        # Since it's cached, this returns the existing object holding the lock.
+        # 1. Close existing agent
         current_repo = st.session_state.get("current_repo_path", ".")
         try:
             old_agent = init_agent(current_repo)
             if old_agent:
                 old_agent.close()
         except Exception:
-            # If init failed previously, just ignore
             pass
 
         # 2. Clear Cache
@@ -123,29 +150,31 @@ def perform_switch(target_path, display_name, status_container):
         st.session_state.selected_repo_name = display_name
         st.session_state.messages = []
 
+        # 5. Persist
+        save_repo_state(target_path, display_name)
+
         status_container.update(label="✅ Ready!", state="complete", expanded=False)
         st.rerun()
-
     except Exception as e:
         status_container.update(label="❌ Error", state="error")
         st.sidebar.error(str(e))
 
 
-# 4. Sidebar Logic
+# 4. Session State Initialization
+if "current_repo_path" not in st.session_state:
+    saved_path, saved_name = load_repo_state()
+    st.session_state.current_repo_path = saved_path
+    st.session_state.selected_repo_name = saved_name
+
+# 5. Sidebar Logic
 with st.sidebar:
     st.title("📂 Repository")
-
-    # --- SECTION A: SWITCH EXISTING ---
     st.subheader("Switch Existing")
     local_repos = get_local_repos()
     options = ["RepoCopilot (Source)"] + local_repos
 
-    # Auto-select current
     curr_idx = 0
-    if (
-        "selected_repo_name" in st.session_state
-        and st.session_state.selected_repo_name in options
-    ):
+    if st.session_state.selected_repo_name in options:
         curr_idx = options.index(st.session_state.selected_repo_name)
 
     selected_repo = st.selectbox(
@@ -162,8 +191,6 @@ with st.sidebar:
             )
 
     st.divider()
-
-    # --- SECTION B: CLONE NEW ---
     st.subheader("Clone New")
     with st.form("clone_form", clear_on_submit=False):
         repo_url = st.text_input(
@@ -180,33 +207,24 @@ with st.sidebar:
                 status_box.write("⬇️ Git Cloning...")
                 path, msg = clone_repo(repo_url)
                 status_box.write(msg)
-                # After clone, proceed to switch
                 perform_switch(path, os.path.basename(path), status_box)
             except Exception as e:
                 status_box.update(label="❌ Clone Failed", state="error")
                 st.error(str(e))
 
     st.divider()
-
-    # Info Panel
-    if "current_repo_path" in st.session_state:
-        st.info(f"Active: **{st.session_state.selected_repo_name}**")
-
+    st.info(f"Active: **{st.session_state.selected_repo_name}**")
     st.caption(f"🤖 Model: {os.getenv('MODEL_NAME', '⚠️ NOT SET')}")
     st.caption(f"🧠 Embed: {os.getenv('EMBEDDING_PROVIDER', 'mock')}")
 
-# 5. Initialize Agent
-if "current_repo_path" not in st.session_state:
-    st.session_state.current_repo_path = "."
-    st.session_state.selected_repo_name = "RepoCopilot (Source)"
-
+# 6. Main Agent Initialization
 try:
     agent = init_agent(st.session_state.current_repo_path)
 except Exception as e:
-    st.error(f"Initialization Error: {e}")
+    st.error(f"Configuration Error: {e}")
     agent = None
 
-# 6. Main Chat Interface
+# 7. Main Chat Interface
 st.title("🤖 RepoCopilot")
 
 if not agent:

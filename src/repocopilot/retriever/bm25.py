@@ -1,4 +1,5 @@
-import pickle
+import json
+import os
 from typing import List
 from rank_bm25 import BM25Okapi
 import re
@@ -8,7 +9,7 @@ from ..common.schema import CodeChunk
 class BM25Retriever:
     def __init__(self):
         self.bm25 = None
-        self.chunks = []  # We need to store chunks to return them, BM25 only stores stats
+        self.chunks = []
 
     def index(self, chunks: List[CodeChunk]):
         self.chunks = chunks
@@ -17,13 +18,11 @@ class BM25Retriever:
 
     def search(self, query: str, top_k: int = 5) -> List[CodeChunk]:
         if not self.bm25:
-            raise ValueError("Index not built!")
+            # Try to lazy load or raise error
+            raise ValueError("Index not built! Call load() first.")
 
         tokenized_query = self._tokenize(query)
-        # Get top_n raw scores
         scores = self.bm25.get_scores(tokenized_query)
-
-        # Sort and get top_k indices
         top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[
             :top_k
         ]
@@ -31,41 +30,36 @@ class BM25Retriever:
         return [self.chunks[i] for i in top_indices]
 
     def _tokenize(self, text: str) -> List[str]:
-        # Simple regex tokenizer for code
-        # Splits on whitespace and punctuation, keeps words
         return [w.lower() for w in re.findall(r"\w+", text)]
 
     def save(self, path: str):
-        with open(path, "wb") as f:
-            pickle.dump({"bm25": self.bm25, "chunks": self.chunks}, f)
+        # We NO LONGER pickle the BM25 object. We only save the data as JSON.
+        # This completely eliminates pickle errors.
+        json_path = path.replace(".pkl", ".json")
+
+        # Serialize chunks to primitive dicts
+        chunks_data = [c.model_dump(mode="json") for c in self.chunks]
+
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(chunks_data, f, ensure_ascii=False, indent=2)
 
     def load(self, path: str):
-        with open(path, "rb") as f:
-            data = pickle.load(f)
-            self.bm25 = data["bm25"]
-            self.chunks = data["chunks"]
+        # Load from JSON and REBUILD the index in-memory (it's fast)
+        json_path = path.replace(".pkl", ".json")
 
+        if not os.path.exists(json_path):
+            # Fallback check for old pkl just in case, but prioritize JSON
+            if os.path.exists(path):
+                print(
+                    f"⚠️ Legacy pickle found at {path}, but JSON expected. Please rebuild index."
+                )
+            raise FileNotFoundError(f"Index data not found at {json_path}")
 
-if __name__ == "__main__":
-    # Test
-    c1 = CodeChunk(
-        id="1",
-        content="def hello(): print('world')",
-        file_path="a.py",
-        start_line=1,
-        end_line=1,
-        type="function",
-    )
-    c2 = CodeChunk(
-        id="2",
-        content="class World: pass",
-        file_path="b.py",
-        start_line=1,
-        end_line=1,
-        type="class",
-    )
+        with open(json_path, "r", encoding="utf-8") as f:
+            chunks_data = json.load(f)
 
-    retriever = BM25Retriever()
-    retriever.index([c1, c2])
-    results = retriever.search("hello function")
-    print(f"Top result: {results[0].content}")
+        # Reconstruct objects
+        self.chunks = [CodeChunk(**c) for c in chunks_data]
+
+        # Rebuild BM25 on the fly
+        self.index(self.chunks)

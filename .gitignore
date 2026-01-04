@@ -9,6 +9,7 @@ ENV/
 GEMINI.md
 PROGRESS.md
 repos/
+.repo_state
 
 # Project specific
 data/
